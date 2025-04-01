@@ -12,6 +12,9 @@ Este projeto foi baseado no tutorial disponibilizado no site oficial do framewor
 - Excluir tarefas individualmente
 - Remover todas as tarefas concluídas
 
+# Demonstrativo
+![image](https://github.com/user-attachments/assets/5f8ab65e-378b-4732-b2bc-35c3aa3b050e)
+
 ## Instalação
 Para rodar o aplicativo, primeiro instale a biblioteca Flet:
 ```sh
