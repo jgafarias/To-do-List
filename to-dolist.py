@@ -1,4 +1,6 @@
+import os  # Importa o módulo os
 import flet as ft
+import sqlite3
 
 # Classe que representa uma tarefa individual na lista
 class Task(ft.Column):
@@ -67,10 +69,11 @@ class Task(ft.Column):
 
     # Salva a edição da tarefa
     def save_clicked(self, e):
-        self.display_task.label = self.edit_name.value
-        self.display_view.visible = True
-        self.edit_view.visible = False
-        self.update()
+        if self.edit_name.value.strip():
+            self.display_task.label = self.edit_name.value.strip()
+            self.display_view.visible = True
+            self.edit_view.visible = False
+            self.update()
 
     # Atualiza o status da tarefa (concluído ou não)
     def status_changed(self, e):
@@ -83,8 +86,55 @@ class Task(ft.Column):
 
 # Classe principal do aplicativo
 class TodoApp(ft.Column):
+
+    def init_db(self):
+        # Obtém o diretório do arquivo atual
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        db_path = os.path.join(current_dir, 'tasks.db')  # Caminho completo para o arquivo .db
+
+        # Conecta ao banco de dados no mesmo diretório do arquivo .py
+        self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        self.cursor = self.conn.cursor()
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tasks (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            name TEXT NOT NULL,
+                            completed BOOLEAN NOT NULL
+                        )
+        """)
+        self.conn.commit()
+
+    def save_task_to_db(self, task):
+        try:
+            if hasattr(task, 'db_id'):
+                self.cursor.execute(
+                    "UPDATE tasks SET name = ?, completed = ? WHERE id = ?", (task.display_task.label, task.completed, task.db_id)
+                )
+            else:
+                self.cursor.execute(
+                    "INSERT INTO tasks (name, completed) VALUES (?, ?)", (task.display_task.label, task.completed)
+                )
+                task.db_id = self.cursor.lastrowid
+            self.conn.commit()
+        except sqlite3.Error as e:
+            print(f"Erro ao salvar tarefa no banco de dados: {e}")
+
+    def load_tasks_from_db(self):
+        try:
+            self.tasks.controls.clear()
+            self.cursor.execute("SELECT id, name, completed FROM tasks")
+            for row in self.cursor.fetchall():
+                task = Task(row[1], self.task_status_change, self.task_delete)
+                task.db_id = row[0]
+                task.completed = row[2]
+                task.display_task.value = row[2]
+                self.tasks.controls.append(task)
+        except sqlite3.Error as e:
+            print(f"Erro ao carregar tarefas do banco de dados: {e}")
+
     def __init__(self):
         super().__init__()
+        self.init_db()
         self.new_task = ft.TextField(
             hint_text="O que precisa ser feito? ", on_submit=self.add_clicked, expand=True
         )
@@ -98,7 +148,7 @@ class TodoApp(ft.Column):
             tabs=[ft.Tab(text="Todos"), ft.Tab(text="Ativos"), ft.Tab(text="Completos")],
         )
 
-        self.items_left = ft.Text("0 item(s) faltando")
+        self.items_left = ft.Text("0 item(s) ativo(s) faltando")
 
         self.width = 600
         self.controls = [
@@ -135,20 +185,28 @@ class TodoApp(ft.Column):
 
     # Adiciona uma nova tarefa
     def add_clicked(self, e):
-        if self.new_task.value:
-            task = Task(self.new_task.value, self.task_status_change, self.task_delete)
+        if self.new_task.value.strip():
+            task = Task(self.new_task.value.strip(), self.task_status_change, self.task_delete)
             self.tasks.controls.append(task)
+            self.save_task_to_db(task)  # Salvar no banco
             self.new_task.value = ""
             self.new_task.focus()
             self.update()
 
     # Atualiza a interface ao mudar o status de uma tarefa
     def task_status_change(self, task):
+        self.save_task_to_db(task)
         self.update()
 
     # Remove uma tarefa da lista
     def task_delete(self, task):
         self.tasks.controls.remove(task)
+        if hasattr(task, 'db_id'):
+            try:
+                self.cursor.execute('DELETE FROM tasks WHERE id = ?', (task.db_id,))
+                self.conn.commit()
+            except sqlite3.Error as e:
+                print(f"Erro ao deletar tarefa do banco de dados: {e}")
         self.update()
 
     # Filtra as tarefas com base na aba selecionada
@@ -168,12 +226,16 @@ class TodoApp(ft.Column):
         for task in self.tasks.controls:
             task.visible = (
                 status == "Todos"
-                or (status == "Ativos" and task.completed == False)
+                or (status == "Ativos" and not task.completed)
                 or (status == "Completos" and task.completed)
             )
             if not task.completed:
                 count += 1
         self.items_left.value = f"{count} item(s) ativo(s) faltando"
+
+    def __del__(self):
+        if hasattr(self, 'conn') and self.conn:
+            self.conn.close()
 
 # Função principal para rodar o app
 def main(page: ft.Page):
@@ -181,6 +243,14 @@ def main(page: ft.Page):
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     page.scroll = ft.ScrollMode.ADAPTIVE
 
-    page.add(TodoApp())
+    # Cria a instância do aplicativo
+    todo_app = TodoApp()
+
+    # Adiciona o controle à página
+    page.add(todo_app)
+
+    # Carrega as tarefas do banco de dados após adicionar o controle
+    todo_app.load_tasks_from_db()
+    todo_app.update()
 
 ft.app(main)
