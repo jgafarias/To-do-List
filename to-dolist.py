@@ -242,6 +242,9 @@ def main(page: ft.Page):
     page.title = "To-Do"
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     page.scroll = ft.ScrollMode.ADAPTIVE
+    page.window.width = 700
+    page.window.resizable = False
+    page.bgcolor = "#363636"
 
     # Cria a instância do aplicativo
     todo_app = TodoApp()
